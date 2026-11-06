@@ -13,7 +13,7 @@ CONTAINER_NAME := blue-archive-builder
 
 # Use the current working directory for the temporary output
 ISO_OUTPUT_DIR := $(PWD)/iso_output
-FINAL_ISO_NAME := Blue_Archive_Linux_amd64-$(BUILD_TYPE).iso
+FINAL_ISO_NAME := *$(BUILD_TYPE).iso
 
 # Define the multi-line shell command to be executed inside Docker.
 # Using '$$' escapes the dollar sign for make, passing a single '$' to the shell.
@@ -25,27 +25,28 @@ DOCKER_COMMAND = \
 	apt-get update >/dev/null && apt-get install -y sudo live-build git >/dev/null; \
 	\
 	echo "--- [Docker] Cloning repository... ---"; \
-	git clone https://github.com/minhmc2007/Blue-Archive-Linux /build_dir; \
-	cd /build_dir; \
-	\
+	rm -rf /repo; \
+	git clone https://github.com/Kivot-OS/KivotOS.git repo; \
+	cd repo/blue_archive_linux; \
+	echo "[Docker] Current directory contents: ---"; \
+	ls -la; \
 	if [ "$(BUILD_TYPE)" = "stable" ]; then \
 		echo "--- [Docker] Entering STABLE build directory... ---"; \
-		cd blue_archive_linux/stable; \
+		cd stable; \
 	else \
 		echo "--- [Docker] Entering DEBUG build directory... ---"; \
-		cd blue_archive_linux/debug; \
+		cd debug; \
 	fi; \
-	\
+	sed -i 's@mv.*\.iso.*@@g' build.sh; \
 	echo "--- [Docker] Executing build.sh... This is the longest step. ---"; \
 	./build.sh; \
-	\
 	echo "--- [Docker] Moving generated ISO to output volume... ---"; \
-	mv Blue_Archive_Linux_amd64*.iso /output/final.iso; \
+	find . -name "*.iso" -exec cp -v {} /output/$(FINAL_ISO_NAME) \; ; \
 	\
 	echo "--- [Docker] Build process finished successfully. Exiting container. ---";
 
 # --- Targets ---
-.PHONY: all build menuconfig clean help
+.PHONY: all build clean
 
 # Default target
 all: build
@@ -102,6 +103,7 @@ build:
 		--name $(CONTAINER_NAME) \
 		--privileged \
 		-v "$(ISO_OUTPUT_DIR):/output" \
+		-e BUILD_TYPE=$(BUILD_TYPE) \
 		$(DOCKER_IMAGE) \
 		bash -c '$(DOCKER_COMMAND)'
 
@@ -109,14 +111,14 @@ build:
 
 	# 3. Copy the final ISO from the output directory to the home directory.
 	@echo "\n[STEP 3/4] Copying generated ISO to your home directory (~/)..."
-	@if [ ! -f "$(ISO_OUTPUT_DIR)/final.iso" ]; then \
+	@if [ ! -f "$(ISO_OUTPUT_DIR)/$(FINAL_ISO_NAME)" ]; then \
 		echo ""; \
 		echo "!!! BUILD FAILED: No ISO file was found in the output directory." ; \
 		echo "!!! Please check the logs above for errors." ; \
 		exit 1; \
 	fi
-	mv $(ISO_OUTPUT_DIR)/final.iso ~/$(FINAL_ISO_NAME)
-	@echo ">>> Success! ISO moved to: ~/$(FINAL_ISO_NAME)"
+	cp -v $(ISO_OUTPUT_DIR)/$(FINAL_ISO_NAME) ~/
+	@echo ">>> Success! ISO copied to home directory."
 
 	# 4. Clean up the temporary build directory on the host.
 	@echo "\n[STEP 4/4] Cleaning up temporary files..."
@@ -130,7 +132,7 @@ clean:
 	@echo ">>> Cleaning up generated ISOs from home directory..."
 	rm -f ~/blue-archive-debug.iso ~/blue-archive-stable.iso
 	@echo ">>> Cleaning up temporary build directory..."
-	rm -rf $(ISO_OUTPUT_DIR)
+	rm -rf output/*
 	@echo ">>> Cleaning up build configuration file..."
 	rm -f .build_config
 	@echo ">>> Cleanup complete."
